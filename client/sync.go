@@ -2,26 +2,94 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/cloudquery/plugin-sdk/plugins/source"
 	"github.com/cloudquery/plugin-sdk/schema"
+	"github.com/thoas/go-funk"
 )
 
-func (c *Client) Sync(ctx context.Context, metrics *source.Metrics, res chan<- *schema.Resource) error {
+func (c *Client) Sync(ctx context.Context, _ *source.Metrics, res chan<- *schema.Resource) error {
 	for _, table := range c.Tables {
-		list := c.SP.Web().GetList("Lists/" + table.Description)
-		items, err := list.Items().GetAll()
+		meta := c.tablesMap[table.Name]
+		if err := c.syncTable(ctx, res, table, meta); err != nil {
+			return fmt.Errorf("syncing table %s: %w", table.Name, err)
+		}
+	}
+	return nil
+}
+
+func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, table *schema.Table, meta tableMeta) error {
+	logger := c.Logger.With().Str("table", table.Name).Logger()
+
+	list := c.SP.Web().GetList("Lists/" + meta.Title)
+	items, err := list.Items().GetPaged()
+
+	for {
 		if err != nil {
 			if IsNotFound(err) {
-				continue
+				return nil
 			}
 			return fmt.Errorf("failed to get items: %w", err)
 		}
-		for _, item := range items {
-			fmt.Println(item.ToMap())
+
+		var itemList []map[string]any
+		if err := json.Unmarshal(items.Items.Normalized(), &itemList); err != nil {
+			return err
 		}
+
+		for _, itemMap := range itemList {
+			//itemMap := item.ToMap()
+			//b, _ := json.Marshal(itemMap)
+			//fmt.Println(string(b))
+			logger.Debug().Strs("keys", funk.Keys(itemMap).([]string)).Msg("item keys")
+
+			colVals := make([]any, len(table.Columns))
+			for i, col := range table.Columns {
+				spName := meta.ColumnMap[col.Name]
+				val, ok := itemMap[spName]
+				if !ok {
+					logger.Warn().Str("item_column", spName).Msg("item column not found in result")
+					colVals[i] = nil
+					continue
+				}
+				colVals[i] = val
+				delete(itemMap, spName)
+			}
+
+			if len(itemMap) > 0 {
+				logger.Warn().Strs("extra_columns", funk.Keys(itemMap).([]string)).Msg("extra columns found in result")
+			}
+
+			resource, err := c.resourceFromValues(table.Name, colVals)
+			if err != nil {
+				return err
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case res <- resource:
+			}
+		}
+
+		if !items.HasNextPage() {
+			break
+		}
+		items, err = items.GetNextPage()
 	}
 
 	return nil
+}
+
+func (c *Client) resourceFromValues(tableName string, values []any) (*schema.Resource, error) {
+	table := c.Tables.Get(tableName)
+	resource := schema.NewResourceData(table, nil, values)
+	for i, col := range table.Columns {
+		if err := resource.Set(col.Name, values[i]); err != nil {
+			return nil, err
+		}
+	}
+	return resource, nil
 }

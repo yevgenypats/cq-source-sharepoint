@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/cloudquery/plugin-sdk/plugins/source"
 	"github.com/cloudquery/plugin-sdk/schema"
@@ -17,15 +16,23 @@ import (
 type Client struct {
 	Logger zerolog.Logger
 	Tables schema.Tables
-	SP 	 *api.SP
+	SP     *api.SP
+	spec   specs.Source
+	opts   source.Options
+
+	tablesMap map[string]tableMeta // normalized table name to table metadata
+}
+
+type tableMeta struct {
+	Title     string
+	ColumnMap map[string]string // cq column name vs. sharepoint column name
 }
 
 func (c *Client) ID() string {
-	// TODO: Change to either your plugin name or a unique dynamic identifier
-	return "ID"
+	return c.spec.Name
 }
 
-func New(ctx context.Context, logger zerolog.Logger, s specs.Source, opts source.Options) (schema.ClientMeta, error) {
+func New(_ context.Context, logger zerolog.Logger, s specs.Source, opts source.Options) (schema.ClientMeta, error) {
 	var pluginSpec Spec
 
 	if err := s.UnmarshalSpec(&pluginSpec); err != nil {
@@ -36,56 +43,40 @@ func New(ctx context.Context, logger zerolog.Logger, s specs.Source, opts source
 	}
 
 	auth := &strategy.AuthCnfg{
-		SiteURL:     pluginSpec.SiteURL,
-		ClientID:    pluginSpec.ClientID,
+		SiteURL:      pluginSpec.SiteURL,
+		ClientID:     pluginSpec.ClientID,
 		ClientSecret: pluginSpec.ClientSecret,
 	}
 	client := &gosip.SPClient{AuthCnfg: auth}
 	sp := api.NewSP(client)
-	lists, err := sp.Web().Lists().Get()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get lists: %w", err)
-	}
-	tables := make(schema.Tables, len(lists.Data()))
-	normalizedNames := make(map[string]bool)
-	for i, list := range lists.Data(){
-		name := normalizeList(list.Data().Title)
-		if _, ok := normalizedNames[name]; ok {
-			logger.Warn().Msgf("List %s has been normalized to %s, but another list has already been normalized to that name. skipping %s", list.Data().Title, name, list.Data().Title)
-			continue
-		}
-		normalizedNames[name] = true
-		table := &schema.Table{
-			Name: "sharepoint_" + name,
-			Description: list.Data().Title,
-		}
-		fields, err := sp.Web().GetList("Lists/" + list.Data().Title).Fields().Get()
-		if err != nil {
-			if IsNotFound(err) {
-				continue
-			}
-			return nil, fmt.Errorf("failed to get fields: %w", err)
-		}
 
-		for _, field := range fields.Data() {
-			fmt.Println("key:" + field.Data().Title)
-			fmt.Println("field:" + field.Data().TypeAsString)
-		}
-		fmt.Println(table.Name)
-		tables[i] = table
-	}
-
-	return &Client{
+	cl := &Client{
 		Logger: logger,
-		Tables: tables,
-		SP: sp,
-	}, nil
-}
+		SP:     sp,
+		spec:   s,
+		opts:   opts,
+	}
 
+	if len(pluginSpec.Lists) == 0 {
+		var err error
+		pluginSpec.Lists, err = cl.getAllLists()
+		if err != nil {
+			return nil, err
+		}
+	}
 
-func normalizeList(name string) string {
-	s := strings.ToLower(name)
-	s = strings.ReplaceAll(s, " ", "_")
-	s = strings.ReplaceAll(s, "-", "_")
-	return s
+	cl.Tables = make(schema.Tables, 0, len(pluginSpec.Lists))
+	cl.tablesMap = make(map[string]tableMeta, len(pluginSpec.Lists))
+	for _, title := range pluginSpec.Lists {
+		table, meta, err := cl.tableFromList(title)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get table from list: %w", err)
+		}
+		if table != nil {
+			cl.Tables = append(cl.Tables, table)
+			cl.tablesMap[table.Name] = *meta
+		}
+	}
+
+	return cl, nil
 }
