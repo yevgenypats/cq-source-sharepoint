@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/cloudquery/plugin-sdk/caser"
 	"github.com/cloudquery/plugin-sdk/plugins/source"
 	"github.com/cloudquery/plugin-sdk/schema"
 	"github.com/cloudquery/plugin-sdk/specs"
@@ -19,6 +20,7 @@ type Client struct {
 	SP     *api.SP
 	spec   specs.Source
 	opts   source.Options
+	csr    *caser.Caser
 
 	tablesMap map[string]tableMeta // normalized table name to table metadata
 }
@@ -55,6 +57,7 @@ func New(_ context.Context, logger zerolog.Logger, s specs.Source, opts source.O
 		SP:     sp,
 		spec:   s,
 		opts:   opts,
+		csr:    caser.New(),
 	}
 
 	if len(pluginSpec.Lists) == 0 {
@@ -73,6 +76,10 @@ func New(_ context.Context, logger zerolog.Logger, s specs.Source, opts source.O
 			return nil, fmt.Errorf("failed to get table from list: %w", err)
 		}
 		if table != nil {
+			//b, _ := json.Marshal(meta.ColumnMap)
+			//fmt.Println(string(b))
+			cl.Logger.Debug().Str("table", table.Name).Str("list", title).Str("columns", table.Columns.String()).Msg("columns for table")
+
 			cl.Tables = append(cl.Tables, table)
 			cl.tablesMap[table.Name] = *meta
 		}

@@ -1,6 +1,8 @@
 package client
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type Spec struct {
 	SiteURL      string   `json:"site_url"`

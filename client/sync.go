@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/cloudquery/plugin-sdk/plugins/source"
 	"github.com/cloudquery/plugin-sdk/schema"
@@ -43,14 +44,18 @@ func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, tab
 			//itemMap := item.ToMap()
 			//b, _ := json.Marshal(itemMap)
 			//fmt.Println(string(b))
-			logger.Debug().Strs("keys", funk.Keys(itemMap).([]string)).Msg("item keys")
+			ks := funk.Keys(itemMap).([]string)
+			sort.Strings(ks)
+			logger.Debug().Strs("keys", ks).Msg("item keys")
 
 			colVals := make([]any, len(table.Columns))
+			var notFoundCols []string
+
 			for i, col := range table.Columns {
 				spName := meta.ColumnMap[col.Name]
 				val, ok := itemMap[spName]
 				if !ok {
-					logger.Warn().Str("item_column", spName).Msg("item column not found in result")
+					notFoundCols = append(notFoundCols, spName)
 					colVals[i] = nil
 					continue
 				}
@@ -58,8 +63,14 @@ func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, tab
 				delete(itemMap, spName)
 			}
 
+			if len(notFoundCols) > 0 {
+				sort.Strings(notFoundCols)
+				logger.Warn().Strs("missing_columns", notFoundCols).Msg("missing columns in result")
+			}
 			if len(itemMap) > 0 {
-				logger.Warn().Strs("extra_columns", funk.Keys(itemMap).([]string)).Msg("extra columns found in result")
+				ks := funk.Keys(itemMap).([]string)
+				sort.Strings(ks)
+				logger.Warn().Strs("extra_columns", ks).Msg("extra columns found in result")
 			}
 
 			resource, err := c.resourceFromValues(table.Name, colVals)

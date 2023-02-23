@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cloudquery/plugin-sdk/caser"
 	"github.com/cloudquery/plugin-sdk/schema"
 	"github.com/koltyakov/gosip/api"
 	"github.com/rs/zerolog"
@@ -51,6 +52,11 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 		return nil, nil, fmt.Errorf("failed to get fields: %w", err)
 	}
 
+	//var itemList []map[string]any
+	//if err := json.Unmarshal(fields.Normalized(), &itemList); err != nil {
+	//	return nil, nil, err
+	//}
+
 	fieldsData := fields.Data()
 	meta := &tableMeta{
 		Title:     title,
@@ -60,6 +66,7 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 	dupeColNames := make(map[string]int, len(fieldsData))
 	for _, field := range fieldsData {
 		fieldData := field.Data()
+
 		col := columnFromField(fieldData, logger)
 		if i := dupeColNames[col.Name]; i > 0 {
 			dupeColNames[col.Name] = i + 1
@@ -113,7 +120,8 @@ func columnFromField(field *api.FieldInfo, logger zerolog.Logger) schema.Column 
 }
 
 func normalizeName(name string) string {
-	s := strings.ToLower(name)
+	csr := caser.New()
+	s := csr.ToSnake(name)
 	s = strings.ReplaceAll(s, " ", "_")
 	s = strings.ReplaceAll(s, "-", "_")
 	return s
