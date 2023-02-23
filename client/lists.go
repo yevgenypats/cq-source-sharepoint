@@ -34,6 +34,13 @@ func (c *Client) getAllLists() ([]string, error) {
 		listOfLists = append(listOfLists, d.Title)
 	}
 
+	for k := range c.pluginSpec.ListFields {
+		name := normalizeName(k)
+		if _, ok := normalizedNames[name]; !ok {
+			return nil, fmt.Errorf("found list_fields for non-existent list in spec: %q", k)
+		}
+	}
+
 	return listOfLists, nil
 }
 
@@ -54,11 +61,6 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 		return nil, nil, fmt.Errorf("failed to get fields: %w", err)
 	}
 
-	//var itemList []map[string]any
-	//if err := json.Unmarshal(fields.Normalized(), &itemList); err != nil {
-	//	return nil, nil, err
-	//}
-
 	fieldsData := fields.Data()
 	meta := &tableMeta{
 		Title:     title,
@@ -77,6 +79,11 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 	dupeColNames := make(map[string]int, len(fieldsData))
 	for _, field := range fieldsData {
 		fieldData := field.Data()
+
+		if !c.pluginSpec.ShouldSelectField(title, fieldData.InternalName) {
+			logger.Debug().Str("field", fieldData.InternalName).Msg("ignoring field")
+			continue
+		}
 
 		col := columnFromField(fieldData, logger)
 		if i := dupeColNames[col.Name]; i > 0 {

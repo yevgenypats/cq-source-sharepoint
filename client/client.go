@@ -15,12 +15,13 @@ import (
 )
 
 type Client struct {
-	Logger zerolog.Logger
-	Tables schema.Tables
-	SP     *api.SP
-	spec   specs.Source
-	opts   source.Options
-	csr    *caser.Caser
+	Logger     zerolog.Logger
+	Tables     schema.Tables
+	SP         *api.SP
+	spec       specs.Source
+	pluginSpec Spec
+	opts       source.Options
+	csr        *caser.Caser
 
 	tablesMap map[string]tableMeta // normalized table name to table metadata
 }
@@ -45,6 +46,7 @@ func New(_ context.Context, logger zerolog.Logger, s specs.Source, opts source.O
 	if err := s.UnmarshalSpec(&pluginSpec); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal plugin spec: %w", err)
 	}
+	pluginSpec.SetDefaults()
 	if err := pluginSpec.Validate(); err != nil {
 		return nil, err
 	}
@@ -58,11 +60,12 @@ func New(_ context.Context, logger zerolog.Logger, s specs.Source, opts source.O
 	sp := api.NewSP(client)
 
 	cl := &Client{
-		Logger: logger,
-		SP:     sp,
-		spec:   s,
-		opts:   opts,
-		csr:    caser.New(),
+		Logger:     logger,
+		SP:         sp,
+		spec:       s,
+		pluginSpec: pluginSpec,
+		opts:       opts,
+		csr:        caser.New(),
 	}
 
 	if len(pluginSpec.Lists) == 0 {

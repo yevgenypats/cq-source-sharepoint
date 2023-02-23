@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/cloudquery/plugin-sdk/plugins/source"
 	"github.com/cloudquery/plugin-sdk/schema"
@@ -33,8 +34,13 @@ func (c *Client) Sync(ctx context.Context, metrics *source.Metrics, res chan<- *
 func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetrics, res chan<- *schema.Resource, table *schema.Table, meta tableMeta) error {
 	logger := c.Logger.With().Str("table", table.Name).Logger()
 
+	colsToSelect := make([]string, 0, len(meta.ColumnMap))
+	for _, v := range meta.ColumnMap {
+		colsToSelect = append(colsToSelect, v.SharepointName)
+	}
+
 	list := c.SP.Web().GetList("Lists/" + meta.Title)
-	items, err := list.Items().GetPaged()
+	items, err := list.Items().Select(strings.Join(colsToSelect, ", ")).GetPaged()
 
 	for {
 		if err != nil {
@@ -52,9 +58,9 @@ func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetri
 		}
 
 		for _, itemMap := range itemList {
-			//itemMap := item.ToMap()
-			//b, _ := json.Marshal(itemMap)
-			//fmt.Println(string(b))
+			b, _ := json.Marshal(itemMap)
+			fmt.Println(string(b))
+
 			ks := funk.Keys(itemMap).([]string)
 			sort.Strings(ks)
 			logger.Debug().Strs("keys", ks).Msg("item keys")
@@ -69,6 +75,7 @@ func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetri
 				}
 
 				colMeta := meta.ColumnMap[col.Name]
+				//fmt.Println("processing", col.Name, colMeta.SharepointName)
 				val, ok := itemMap[colMeta.SharepointName]
 				if !ok {
 					notFoundCols = append(notFoundCols, colMeta.SharepointName)
@@ -82,6 +89,14 @@ func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetri
 			if len(notFoundCols) > 0 {
 				sort.Strings(notFoundCols)
 				logger.Warn().Strs("missing_columns", notFoundCols).Msg("missing columns in result")
+			}
+			if len(itemMap) > 0 {
+				// Remove any extra fields that are already ignored but still found in the response
+				for k := range itemMap {
+					if !c.pluginSpec.ShouldSelectField(meta.Title, k) {
+						delete(itemMap, k)
+					}
+				}
 			}
 			if len(itemMap) > 0 {
 				ks := funk.Keys(itemMap).([]string)
