@@ -89,6 +89,7 @@ func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetri
 						delete(itemMap, k)
 					}
 				}
+				delete(itemMap, "Id") // remove "Id", we should already have "ID"
 			}
 			if len(itemMap) > 0 {
 				ks := funk.Keys(itemMap).([]string)
