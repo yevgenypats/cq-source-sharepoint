@@ -73,7 +73,7 @@ func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, tab
 				logger.Warn().Strs("extra_columns", ks).Msg("extra columns found in result")
 			}
 
-			resource, err := c.resourceFromValues(table.Name, colVals)
+			resource, err := resourceFromValues(table, colVals)
 			if err != nil {
 				return err
 			}
@@ -94,8 +94,7 @@ func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, tab
 	return nil
 }
 
-func (c *Client) resourceFromValues(tableName string, values []any) (*schema.Resource, error) {
-	table := c.Tables.Get(tableName)
+func resourceFromValues(table *schema.Table, values []any) (*schema.Resource, error) {
 	resource := schema.NewResourceData(table, nil, values)
 	for i, col := range table.Columns {
 		if err := resource.Set(col.Name, values[i]); err != nil {
