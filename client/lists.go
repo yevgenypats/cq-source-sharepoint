@@ -10,6 +10,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const pkField = "sharepoint_listrow_id"
+
 func (c *Client) getAllLists() ([]string, error) {
 	lists, err := c.SP.Web().Lists().Get()
 	if err != nil {
@@ -63,6 +65,15 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 		ColumnMap: make(map[string]string, len(fieldsData)),
 	}
 
+	table.Columns = append(table.Columns, schema.Column{
+		Name:        pkField,
+		Description: "The unique identifier of the list item.",
+		Type:        schema.TypeUUID,
+		CreationOptions: schema.ColumnCreationOptions{
+			PrimaryKey: true,
+		},
+	})
+
 	dupeColNames := make(map[string]int, len(fieldsData))
 	for _, field := range fieldsData {
 		fieldData := field.Data()
@@ -85,7 +96,6 @@ func columnFromField(field *api.FieldInfo, logger zerolog.Logger) schema.Column 
 	c := schema.Column{
 		Name:        normalizeName(field.InternalName),
 		Description: field.Description,
-		//Resolver:    schema.PathResolver(field.Title),
 	}
 	switch field.TypeAsString {
 	case "Text", "Note", "ContentTypeId":

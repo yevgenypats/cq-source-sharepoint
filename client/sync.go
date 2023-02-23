@@ -8,20 +8,29 @@ import (
 
 	"github.com/cloudquery/plugin-sdk/plugins/source"
 	"github.com/cloudquery/plugin-sdk/schema"
+	"github.com/google/uuid"
 	"github.com/thoas/go-funk"
 )
 
-func (c *Client) Sync(ctx context.Context, _ *source.Metrics, res chan<- *schema.Resource) error {
+func (c *Client) Sync(ctx context.Context, metrics *source.Metrics, res chan<- *schema.Resource) error {
+	for _, table := range c.Tables {
+		if metrics.TableClient[table.Name] == nil {
+			metrics.TableClient[table.Name] = make(map[string]*source.TableClientMetrics)
+			metrics.TableClient[table.Name][c.ID()] = &source.TableClientMetrics{}
+		}
+	}
+
 	for _, table := range c.Tables {
 		meta := c.tablesMap[table.Name]
-		if err := c.syncTable(ctx, res, table, meta); err != nil {
+		m := metrics.TableClient[table.Name][c.ID()]
+		if err := c.syncTable(ctx, m, res, table, meta); err != nil {
 			return fmt.Errorf("syncing table %s: %w", table.Name, err)
 		}
 	}
 	return nil
 }
 
-func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, table *schema.Table, meta tableMeta) error {
+func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetrics, res chan<- *schema.Resource, table *schema.Table, meta tableMeta) error {
 	logger := c.Logger.With().Str("table", table.Name).Logger()
 
 	list := c.SP.Web().GetList("Lists/" + meta.Title)
@@ -32,11 +41,13 @@ func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, tab
 			if IsNotFound(err) {
 				return nil
 			}
+			metrics.Errors++
 			return fmt.Errorf("failed to get items: %w", err)
 		}
 
 		var itemList []map[string]any
 		if err := json.Unmarshal(items.Items.Normalized(), &itemList); err != nil {
+			metrics.Errors++
 			return err
 		}
 
@@ -52,6 +63,11 @@ func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, tab
 			var notFoundCols []string
 
 			for i, col := range table.Columns {
+				if col.Name == pkField { // _cq_id currently has issues with unmanaged tables
+					colVals[i] = uuid.New().String()
+					continue
+				}
+
 				spName := meta.ColumnMap[col.Name]
 				val, ok := itemMap[spName]
 				if !ok {
@@ -75,6 +91,7 @@ func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, tab
 
 			resource, err := resourceFromValues(table, colVals)
 			if err != nil {
+				metrics.Errors++
 				return err
 			}
 
@@ -82,6 +99,7 @@ func (c *Client) syncTable(ctx context.Context, res chan<- *schema.Resource, tab
 			case <-ctx.Done():
 				return ctx.Err()
 			case res <- resource:
+				metrics.Resources++
 			}
 		}
 
