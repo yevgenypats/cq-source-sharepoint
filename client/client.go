@@ -27,7 +27,12 @@ type Client struct {
 
 type tableMeta struct {
 	Title     string
-	ColumnMap map[string]string // cq column name vs. sharepoint column name
+	ColumnMap map[string]columnMeta // cq column name to column metadata
+}
+
+type columnMeta struct {
+	SharepointName string
+	SharepointType string
 }
 
 func (c *Client) ID() string {

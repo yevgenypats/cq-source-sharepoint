@@ -62,7 +62,7 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 	fieldsData := fields.Data()
 	meta := &tableMeta{
 		Title:     title,
-		ColumnMap: make(map[string]string, len(fieldsData)),
+		ColumnMap: make(map[string]columnMeta, len(fieldsData)),
 	}
 
 	table.Columns = append(table.Columns, schema.Column{
@@ -87,7 +87,10 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 		}
 
 		table.Columns = append(table.Columns, col)
-		meta.ColumnMap[col.Name] = fieldData.InternalName
+		meta.ColumnMap[col.Name] = columnMeta{
+			SharepointName: fieldData.InternalName,
+			SharepointType: fieldData.TypeAsString,
+		}
 	}
 	return table, meta, nil
 }
@@ -102,7 +105,9 @@ func columnFromField(field *api.FieldInfo, logger zerolog.Logger) schema.Column 
 		c.Type = schema.TypeString
 	case "Integer", "Counter":
 		c.Type = schema.TypeInt
-	case "Number", "Currency":
+	case "Currency":
+		c.Type = schema.TypeString // We override this later to be able to represent Currency as strings
+	case "Number":
 		c.Type = schema.TypeFloat
 	case "DateTime":
 		c.Type = schema.TypeTimestamp

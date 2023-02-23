@@ -68,15 +68,15 @@ func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetri
 					continue
 				}
 
-				spName := meta.ColumnMap[col.Name]
-				val, ok := itemMap[spName]
+				colMeta := meta.ColumnMap[col.Name]
+				val, ok := itemMap[colMeta.SharepointName]
 				if !ok {
-					notFoundCols = append(notFoundCols, spName)
+					notFoundCols = append(notFoundCols, colMeta.SharepointName)
 					colVals[i] = nil
 					continue
 				}
-				colVals[i] = val
-				delete(itemMap, spName)
+				colVals[i] = convertSharepointType(colMeta, val)
+				delete(itemMap, colMeta.SharepointName)
 			}
 
 			if len(notFoundCols) > 0 {
@@ -120,4 +120,13 @@ func resourceFromValues(table *schema.Table, values []any) (*schema.Resource, er
 		}
 	}
 	return resource, nil
+}
+
+func convertSharepointType(colMeta columnMeta, val any) any {
+	switch colMeta.SharepointType {
+	case "Currency":
+		return fmt.Sprintf("%f", val)
+	default:
+		return val
+	}
 }
