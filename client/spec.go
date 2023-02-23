@@ -11,10 +11,23 @@ type Spec struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 
-	Lists         []string            `json:"lists"`
-	ListFields    map[string][]string `json:"list_fields"`
-	DefaultFields []string            `json:"default_fields"`
-	IgnoreFields  []string            `json:"ignore_fields"`
+	// Lists to fetch, if empty all lists will be fetched
+	Lists []string `json:"lists"`
+
+	// ListFields is a map of list name to list of fields to fetch, if empty all DefaultFields will be fetched
+	ListFields map[string][]string `json:"list_fields"`
+
+	// DefaultFields is the fields to fetch if not specified in ListFields
+	DefaultFields []string `json:"default_fields"`
+
+	// IgnoreFields is the fields to always ignore
+	IgnoreFields []string `json:"ignore_fields"`
+
+	// FieldOverrides is a map of field name to type, used to override the detected type. If the field does not exist in the definitions, it will be forcibly added.
+	FieldOverrides map[string]string `json:"field_overrides"`
+
+	// pkColumn is the primary key column name, defaults to "Id"
+	pkColumn string
 }
 
 func (s *Spec) SetDefaults() {
@@ -30,7 +43,6 @@ func (s *Spec) SetDefaults() {
 			"Title",
 			"AuthorId",
 			"EditorId",
-			"version",
 			"FSObjType",
 		}
 	}
@@ -40,6 +52,21 @@ func (s *Spec) SetDefaults() {
 			"__metadata",
 		}
 	}
+
+	if len(s.FieldOverrides) == 0 {
+		s.FieldOverrides = map[string]string{
+			"AuthorId":  "Integer",
+			"EditorId":  "Integer",
+			"Id":        "Integer",
+			"FSObjType": "Integer",
+		}
+	}
+
+	if _, ok := s.FieldOverrides["Id"]; !ok {
+		s.FieldOverrides["Id"] = "Integer" // Always force an `Id` column
+	}
+
+	s.pkColumn = "Id"
 }
 
 func (s Spec) Validate() error {

@@ -10,8 +10,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const pkField = "sharepoint_listrow_id"
-
 func (c *Client) getAllLists() ([]string, error) {
 	lists, err := c.SP.Web().Lists().Get()
 	if err != nil {
@@ -67,16 +65,28 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 		ColumnMap: make(map[string]columnMeta, len(fieldsData)),
 	}
 
-	table.Columns = append(table.Columns, schema.Column{
-		Name:        pkField,
-		Description: "The unique identifier of the list item.",
-		Type:        schema.TypeUUID,
-		CreationOptions: schema.ColumnCreationOptions{
-			PrimaryKey: true,
-		},
-	})
-
 	dupeColNames := make(map[string]int, len(fieldsData))
+	spCols := make(map[string]struct{})
+
+	addField := func(fieldData api.FieldInfo) {
+		col := columnFromField(fieldData, logger, c.pluginSpec.FieldOverrides)
+		if i := dupeColNames[col.Name]; i > 0 {
+			dupeColNames[col.Name] = i + 1
+			col.Name = fmt.Sprintf("%s_%d", col.Name, i)
+		} else {
+			dupeColNames[col.Name] = 1
+		}
+
+		col.CreationOptions.PrimaryKey = fieldData.InternalName == c.pluginSpec.pkColumn
+
+		table.Columns = append(table.Columns, col)
+		meta.ColumnMap[col.Name] = columnMeta{
+			SharepointName: fieldData.InternalName,
+			SharepointType: fieldData.TypeAsString,
+		}
+		spCols[fieldData.InternalName] = struct{}{}
+	}
+
 	for _, field := range fieldsData {
 		fieldData := field.Data()
 
@@ -85,28 +95,35 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 			continue
 		}
 
-		col := columnFromField(fieldData, logger)
-		if i := dupeColNames[col.Name]; i > 0 {
-			dupeColNames[col.Name] = i + 1
-			col.Name = fmt.Sprintf("%s_%d", col.Name, i)
-		} else {
-			dupeColNames[col.Name] = 1
+		addField(*fieldData)
+	}
+
+	for extraField, extraType := range c.pluginSpec.FieldOverrides {
+		if _, ok := spCols[extraField]; ok {
+			continue
 		}
 
-		table.Columns = append(table.Columns, col)
-		meta.ColumnMap[col.Name] = columnMeta{
-			SharepointName: fieldData.InternalName,
-			SharepointType: fieldData.TypeAsString,
-		}
+		logger.Debug().Str("field", extraField).Str("field_type", extraType).Msg("adding extra field with type")
+		addField(api.FieldInfo{
+			InternalName: extraField,
+		})
 	}
+
 	return table, meta, nil
 }
 
-func columnFromField(field *api.FieldInfo, logger zerolog.Logger) schema.Column {
+func columnFromField(field api.FieldInfo, logger zerolog.Logger, overrides map[string]string) schema.Column {
 	c := schema.Column{
 		Name:        normalizeName(field.InternalName),
 		Description: field.Description,
 	}
+	if override, ok := overrides[field.InternalName]; ok {
+		if field.TypeAsString != "" {
+			logger.Debug().Str("field", field.InternalName).Str("field_type", field.TypeAsString).Str("type_override", override).Msg("overriding field type")
+		}
+		field.TypeAsString = override
+	}
+
 	switch field.TypeAsString {
 	case "Text", "Note", "ContentTypeId":
 		c.Type = schema.TypeString

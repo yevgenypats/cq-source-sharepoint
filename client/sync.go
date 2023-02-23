@@ -9,7 +9,6 @@ import (
 
 	"github.com/cloudquery/plugin-sdk/plugins/source"
 	"github.com/cloudquery/plugin-sdk/schema"
-	"github.com/google/uuid"
 	"github.com/thoas/go-funk"
 )
 
@@ -38,6 +37,7 @@ func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetri
 	for _, v := range meta.ColumnMap {
 		colsToSelect = append(colsToSelect, v.SharepointName)
 	}
+	logger.Debug().Strs("cols", colsToSelect).Msg("selecting columns from list")
 
 	list := c.SP.Web().GetList("Lists/" + meta.Title)
 	items, err := list.Items().Select(strings.Join(colsToSelect, ", ")).GetPaged()
@@ -58,9 +58,6 @@ func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetri
 		}
 
 		for _, itemMap := range itemList {
-			b, _ := json.Marshal(itemMap)
-			fmt.Println(string(b))
-
 			ks := funk.Keys(itemMap).([]string)
 			sort.Strings(ks)
 			logger.Debug().Strs("keys", ks).Msg("item keys")
@@ -69,13 +66,7 @@ func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetri
 			var notFoundCols []string
 
 			for i, col := range table.Columns {
-				if col.Name == pkField { // _cq_id currently has issues with unmanaged tables
-					colVals[i] = uuid.New().String()
-					continue
-				}
-
 				colMeta := meta.ColumnMap[col.Name]
-				//fmt.Println("processing", col.Name, colMeta.SharepointName)
 				val, ok := itemMap[colMeta.SharepointName]
 				if !ok {
 					notFoundCols = append(notFoundCols, colMeta.SharepointName)
