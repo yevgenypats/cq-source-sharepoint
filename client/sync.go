@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudquery/plugin-sdk/plugins/source"
 	"github.com/cloudquery/plugin-sdk/schema"
+	"github.com/koltyakov/gosip/api"
 	"github.com/thoas/go-funk"
 )
 
@@ -84,7 +85,7 @@ func (c *Client) syncTable(ctx context.Context, metrics *source.TableClientMetri
 			if len(itemMap) > 0 {
 				// Remove any extra fields that are already ignored but still found in the response
 				for k := range itemMap {
-					if !c.pluginSpec.ShouldSelectField(meta.Title, k) {
+					if !c.pluginSpec.ShouldSelectField(meta.Title, api.FieldInfo{InternalName: k}) {
 						delete(itemMap, k)
 					}
 				}

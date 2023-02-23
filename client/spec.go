@@ -2,7 +2,9 @@ package client
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/koltyakov/gosip/api"
 	"github.com/thoas/go-funk"
 )
 
@@ -17,16 +19,10 @@ type Spec struct {
 	// ListFields is a map of list name to list of fields to fetch, if empty all DefaultFields will be fetched
 	ListFields map[string][]string `json:"list_fields"`
 
-	// DefaultFields is the fields to fetch if not specified in ListFields
-	DefaultFields []string `json:"default_fields"`
-
 	// IgnoreFields is the fields to always ignore
 	IgnoreFields []string `json:"ignore_fields"`
 
-	// FieldOverrides is a map of field name to type, used to override the detected type. If the field does not exist in the definitions, it will be forcibly added.
-	FieldOverrides map[string]string `json:"field_overrides"`
-
-	// pkColumn is the primary key column name, defaults to "Id"
+	// pkColumn is the primary key column name, defaults to "ID"
 	pkColumn string
 }
 
@@ -35,38 +31,18 @@ func (s *Spec) SetDefaults() {
 		s.ListFields = make(map[string][]string)
 	}
 
-	if len(s.DefaultFields) == 0 {
-		s.DefaultFields = []string{
-			"Id",
-			"Created",
-			"Modified",
-			"Title",
-			"AuthorId",
-			"EditorId",
-			"FSObjType",
-		}
-	}
-
 	if len(s.IgnoreFields) == 0 {
 		s.IgnoreFields = []string{
-			"__metadata",
+			"ComplianceAssetId",
+			"Attachments",
+			"AppAuthor",
+			"AppEditor",
+			"ItemChildCount",
+			"FolderChildCount",
 		}
 	}
 
-	if len(s.FieldOverrides) == 0 {
-		s.FieldOverrides = map[string]string{
-			"AuthorId":  "Integer",
-			"EditorId":  "Integer",
-			"Id":        "Integer",
-			"FSObjType": "Integer",
-		}
-	}
-
-	if _, ok := s.FieldOverrides["Id"]; !ok {
-		s.FieldOverrides["Id"] = "Integer" // Always force an `Id` column
-	}
-
-	s.pkColumn = "Id"
+	s.pkColumn = "ID"
 }
 
 func (s Spec) Validate() error {
@@ -101,16 +77,19 @@ func (s Spec) Validate() error {
 	return nil
 }
 
-func (s Spec) ShouldSelectField(list, field string) bool {
-	if funk.ContainsString(s.IgnoreFields, field) {
+func (s Spec) ShouldSelectField(list string, field api.FieldInfo) bool {
+	if funk.ContainsString(s.IgnoreFields, field.InternalName) {
 		return false
 	}
 
-	fields := s.ListFields[list]
-	if len(fields) == 0 {
-		// If no fields are specified for this list, use the default fields
-		return funk.ContainsString(s.DefaultFields, field)
+	if fields := s.ListFields[list]; len(fields) > 0 {
+		return funk.ContainsString(fields, field.InternalName)
 	}
 
-	return funk.ContainsString(fields, field)
+	// Ignore internal, hidden or computed fields
+	if strings.HasPrefix(field.InternalName, "_") || field.Hidden || field.FieldTypeKind == 12 {
+		return false
+	}
+
+	return true
 }

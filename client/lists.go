@@ -69,7 +69,7 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 	spCols := make(map[string]struct{})
 
 	addField := func(fieldData api.FieldInfo) {
-		col := columnFromField(fieldData, logger, c.pluginSpec.FieldOverrides)
+		col := columnFromField(&fieldData, logger)
 		if i := dupeColNames[col.Name]; i > 0 {
 			dupeColNames[col.Name] = i + 1
 			col.Name = fmt.Sprintf("%s_%d", col.Name, i)
@@ -88,40 +88,24 @@ func (c *Client) tableFromList(title string) (*schema.Table, *tableMeta, error) 
 	}
 
 	for _, field := range fieldsData {
-		fieldData := field.Data()
+		fieldData := *field.Data()
 
-		if !c.pluginSpec.ShouldSelectField(title, fieldData.InternalName) {
-			logger.Debug().Str("field", fieldData.InternalName).Msg("ignoring field")
+		if !c.pluginSpec.ShouldSelectField(title, fieldData) {
+			//logger.Debug().Str("field", fieldData.InternalName).Msg("ignoring field")
 			continue
 		}
 
-		addField(*fieldData)
-	}
-
-	for extraField, extraType := range c.pluginSpec.FieldOverrides {
-		if _, ok := spCols[extraField]; ok {
-			continue
-		}
-
-		logger.Debug().Str("field", extraField).Str("field_type", extraType).Msg("adding extra field with type")
-		addField(api.FieldInfo{
-			InternalName: extraField,
-		})
+		addField(fieldData)
 	}
 
 	return table, meta, nil
 }
 
-func columnFromField(field api.FieldInfo, logger zerolog.Logger, overrides map[string]string) schema.Column {
+func columnFromField(field *api.FieldInfo, logger zerolog.Logger) schema.Column {
+	//logger.Debug().Str("field", field.InternalName).Str("field_type", field.TypeAsString).Any("field_info", field).Msg("processing field")
+
 	c := schema.Column{
-		Name:        normalizeName(field.InternalName),
 		Description: field.Description,
-	}
-	if override, ok := overrides[field.InternalName]; ok {
-		if field.TypeAsString != "" {
-			logger.Debug().Str("field", field.InternalName).Str("field_type", field.TypeAsString).Str("type_override", override).Msg("overriding field type")
-		}
-		field.TypeAsString = override
 	}
 
 	switch field.TypeAsString {
@@ -139,21 +123,24 @@ func columnFromField(field api.FieldInfo, logger zerolog.Logger, overrides map[s
 		c.Type = schema.TypeBool
 	case "Guid":
 		c.Type = schema.TypeUUID
-	case "Lookup":
+	case "Lookup", "User":
+		c.Type = schema.TypeInt
+		field.InternalName += "Id"
+	case "LookupMulti", "UserMulti":
 		c.Type = schema.TypeIntArray
+		field.InternalName += "Id"
 	case "Choice":
 		c.Type = schema.TypeString
 	case "MultiChoice":
 		c.Type = schema.TypeStringArray
-	case "User":
-		c.Type = schema.TypeJSON
 	case "Computed":
 		c.Type = schema.TypeJSON
 	default:
 		logger.Warn().Str("type", field.TypeAsString).Int("kind", field.FieldTypeKind).Str("field_title", field.Title).Str("field_id", field.ID).Msg("unknown type, assuming JSON")
 		c.Type = schema.TypeJSON
 	}
-	//logger.Info().Str("type", field.TypeAsString).Int("kind", field.FieldTypeKind).Str("field_title", field.Title).Str("field_id", field.ID).Any("f", field).Msg("found field")
+
+	c.Name = normalizeName(field.InternalName)
 
 	return c
 }
